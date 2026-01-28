@@ -146,7 +146,8 @@ class GetMetadataFromFileDoFn(beam.DoFn):
             "show_id": blob.metadata.get("show_id"),
             "episode_id": blob.metadata.get("episode_id"),
             "duration": blob.metadata.get("duration"),
-            "status": blob.metadata.get("status")
+            "status": blob.metadata.get("status"),
+            "duration_sec":blob.metadata.get("duration_sec")
         }
 
 class FormatFirestoreDocument(beam.DoFn):
@@ -210,26 +211,36 @@ def run():
 
         audio_files = (
             p
-                | "MatchFiles" >> fileio.MatchFiles(f'gs://{args.bucket_name}/audio/*.wav')
+                | "MatchFiles" >> fileio.MatchFiles(f'gs://{args.bucket_name}/00_DocAux/audio/*.wav')
                 | "ReadFiles" >> fileio.ReadMatches()
                 | "ToGCSPath" >> beam.Map(lambda rf: rf.metadata.path)
         )
 
+
         processed_audio_files = (
             audio_files
-                | "ReadAudioFiles" >> #ToDo
-                | "TranscribeAudio" >> #ToDo
-                | "ExtractTranscription" >> #ToDo
-                | "ClassifyTopic" >> #ToDo
-                | "MapLabelMapping" >> #ToDo
-                | "GetMetadataFromFile" >> #ToDo
+                | "ReadAudioFiles" >> beam.Map(read_audio_files)
+                | "TranscribeAudio" >> RunInference(audio_model_handler)
+                | "ExtractTranscription" >> beam.Map(extract_text_from_prediction)
+                | "ClassifyTopic" >> RunInference(KeyedModelHandler(topic_model_handler))
+                | "MapLabelMapping" >> beam.Map(label_mapping)
+                | "GetMetadataFromFile" >> beam.ParDo(GetMetadataFromFileDoFn(args.project_id))
         )
 
-        processed_audio_files | "WriteToFirestore" >> #ToDo
+        processed_audio_files | "WriteToFirestore" >> beam.ParDo(FormatFirestoreDocument(args.firestore_collection, args.project_id))
         
         (
+            (
             processed_audio_files |
-            "WriteToBigQuery" >> #ToDo
+            "WriteToBigQuery" >> beam.io.WriteToBigQuery(
+                table=f"{args.project_id}:{args.bigquery_dataset}.{args.bigquery_table}",
+                schema='transcription:STRING, label:STRING, title:STRING, show_id:STRING, episode_id:STRING, duration:STRING, status:STRING, duration_sec:STRING',
+                write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
+                create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+                method=beam.io.WriteToBigQuery.Method.FILE_LOADS,
+                custom_gcs_temp_location=f"gs://{args.bucket_name}/temp"
+            )
+        )
         )
 
 if __name__ == '__main__':

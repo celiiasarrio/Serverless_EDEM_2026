@@ -24,6 +24,7 @@ from apache_beam.ml.inference.huggingface_inference import HuggingFacePipelineMo
 from apache_beam.ml.inference.huggingface_inference import PipelineTask
 from apache_beam.ml.inference.base import PredictionResult
 from apache_beam.ml.inference.base import RunInference
+from more_itertools import bucket
 
 # C. Python Libraries
 import soundfile as sf
@@ -79,27 +80,46 @@ def read_image_bytes(path: str):
     return (path,data)
 
 class FormatFirestoreDocument(beam.DoFn):
-
-    def __init__(self,firestore_collection, project_id):
+    def __init__(self, firestore_collection, project_id):
         self.firestore_collection = firestore_collection
         self.project_id = project_id
 
     def setup(self):
-        #ToDo
-
+        from google.cloud import firestore
+        self.db = firestore.Client(project=self.project_id)
+    
     def process(self, element):
+        doc_ref = self.db.collection(self.firestore_collection).document(element['episode_id'])
 
-        #ToDo
+        doc_ref.update({
+            "image_url": element['image_url'],
+            "is_sensitive": element['is_sensitive']
+        })
 
-        logging.info(f"Document written to Firestore: {doc_ref.id}")
+        logging.info(f"Document updated in Firestore: {doc_ref.id}")    
 
 class GetMetadataFromFileDoFn(beam.DoFn):
+    def __init__(self, project_id):
+        self.project_id = project_id
 
     def setup(self):
-        #ToDo
+        from google.cloud import storage
+        self.client = storage.Client(project=self.project_id)
 
     def process(self, element):
-        #ToDo
+        from urllib.parse import urlparse
+        
+        parsed = urlparse(element['path'])
+        bucket_name = parsed.netloc
+        blob_name = parsed.path.lstrip("/")
+
+        blob = self.client.bucket(bucket_name).get_blob(blob_name)
+
+        yield {
+            "episode_id": blob.metadata.get("episode_id"),
+            "is_sensitive": element['is_sensitive'],
+            "image_url": element['path']
+        }
 
 """ Code: Dataflow Process """
 
@@ -145,23 +165,32 @@ def run():
 
         image_files = (
             p
-                | "MatchFiles" >> fileio.MatchFiles(f'gs://{args.bucket_name}/images/*.jpg')
+                | "MatchFiles" >> fileio.MatchFiles(f'gs://{args.bucket_name}/00_DocAux/images/*.jpg')
                 | "ReadFiles" >> fileio.ReadMatches()
                 | "ToGCSPath" >> beam.Map(lambda rf: rf.metadata.path)
         )
 
         processed_image_data = (
             image_files
-                | "ReadImageFiles" >> #ToDo
-                | "SafeSearchDetection" >> #ToDo
-                | "GetMetadataFromFile" >> #ToDo
+                | "ReadImageFiles" >> beam.Map(read_image_bytes)
+                | "SafeSearchDetection" >> beam.ParDo(VisionSafeSearchDoFn())
+                | "GetMetadataFromFile" >> beam.ParDo(GetMetadataFromFileDoFn(project_id=args.project_id))
         )
 
-        processed_image_data | "WriteToFirestore" >> #ToDo
-        
+        processed_image_data | "WriteToFirestore" >> beam.ParDo(
+            FormatFirestoreDocument(
+                firestore_collection=args.firestore_collection, project_id=args.project_id))
+
         (
             processed_image_data |
-            "WriteToBigQuery" >> #ToDo
+            "WriteToBigQuery" >> beam.io.WriteToBigQuery(
+                table=f"{args.project_id}:{args.bigquery_dataset}.{args.bigquery_table}",
+                schema='episode_id:STRING, is_sensitive:BOOLEAN, image_url:STRING',
+                write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
+                create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+                method=beam.io.WriteToBigQuery.Method.FILE_LOADS,
+                custom_gcs_temp_location=f"gs://{args.bucket_name}/temp"    
+            )
         )
 
 if __name__ == '__main__':

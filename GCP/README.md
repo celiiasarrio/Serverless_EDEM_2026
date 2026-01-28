@@ -134,6 +134,10 @@ gsutil setmeta \
 
 Go to the [Google Cloud Firestore Console](https://console.cloud.google.com/firestore) and create a database **(default) in native mode**. This will allow us to store all the data sent by the different systems.
 
+## Big Query
+
+Crear una tabla en Big Query con el nombre edem_data.
+
 ## Google Cloud Artifact Registry
 
 -  As a first step, go to the [Artifact Registry Console](https://console.cloud.google.com/artifacts) and create a repository with the default values. Alternatively, you can create it using the CLI:

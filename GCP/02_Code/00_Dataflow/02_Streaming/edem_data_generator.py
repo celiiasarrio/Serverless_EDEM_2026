@@ -1,5 +1,9 @@
 """
+Spotify Podcast Data Generator
+Generates synthetic podcast streaming data and publishes to Pub/Sub topics.
 
+EDEM. Master Big Data & Cloud 2025/2026
+Professor: Javi Briones & Adriana Campos
 """
 
 # Import libraries
@@ -38,6 +42,7 @@ def publish_message(topic_name, payload, publisher, project_id):
 
     topic_path = publisher.topic_path(project_id, topic_name)
     publisher.publish(topic_path, json.dumps(payload).encode("utf-8"))
+    logging.info(f"Published message to {topic_name}.")
 
 # --- Replace these with Firestore/API later ---
 
@@ -55,9 +60,9 @@ def get_firestore_data(firestore_collection, project_id):
         db = firestore.Client(project=project_id)
 
         doc_ref = db.collection(firestore_collection).stream()
-        id = [doc.id for doc in doc_ref]
+        id = random.choice([doc.id for doc in doc_ref])
 
-        data = random.choice(id)
+        data = db.collection(firestore_collection).document(id).get().to_dict()
         return data
     
     except Exception as e:
@@ -241,9 +246,13 @@ parser.add_argument('--quality_topic',
     required=True,
     help='GCP PubSub topic for quality data.')
 
-parser.add_argument('--firestore_collection',
+parser.add_argument('--user_firestore_collection',
     required=True,
-    help='Firestore collection name for user data.')   
+    help='Firestore collection name for user data.')
+
+parser.add_argument('--episode_firestore_collection',
+    required=True,
+    help='Firestore collection name for episode data.') 
 
 args, opts = parser.parse_known_args()
 

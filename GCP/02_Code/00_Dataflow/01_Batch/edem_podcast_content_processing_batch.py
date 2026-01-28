@@ -9,7 +9,7 @@ This script implements a Dataflow batch pipeline that processes podcast audio fi
 4. Stores the transcription and topic classification results in both Firestore and BigQuery.
 
 EDEM. Master Big Data & Cloud 2025/2026
-Professor: Javi Briones
+Professor: Javi Briones & Adriana Campos
 """
 
 """ Import Libraries """

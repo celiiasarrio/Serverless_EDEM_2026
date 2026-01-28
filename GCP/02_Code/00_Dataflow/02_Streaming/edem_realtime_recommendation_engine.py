@@ -5,7 +5,7 @@ Script: Dataflow Streaming Pipeline
 Description:
 
 EDEM. Master Big Data & Cloud 2025/2026
-Professor: Javi Briones
+Professor: Javi Briones & Adriana Campos
 """
 
 """ Import Libraries """
@@ -17,23 +17,11 @@ from apache_beam.transforms.window import Sessions, SlidingWindows
 from apache_beam.io.filesystems import FileSystems
 from apache_beam.utils.timestamp import Timestamp
 
-# B. Apache Beam ML Libraries
-from apache_beam.ml.inference.huggingface_inference import HuggingFacePipelineModelHandler
-from apache_beam.ml.inference.huggingface_inference import PipelineTask
-from apache_beam.ml.inference.base import PredictionResult
-from apache_beam.ml.inference.base import RunInference
-
-# C. Google Cloud Libraries
-from google.cloud import firestore
-
-# D. Python Libraries
-import soundfile as sf
-import numpy as np
+# B. Python Libraries
 import argparse
 import logging
 import uuid
 import json
-import io
 
 """ Code: Helpful functions """
 
@@ -226,6 +214,23 @@ class ContentMetricsFn(beam.DoFn):
                 }
             )
 
+class FormatFirestoreDocument(beam.DoFn):
+
+    def __init__(self,firestore_collection, project_id):
+        self.firestore_collection = firestore_collection
+        self.project_id = project_id
+
+    def setup(self):
+        from google.cloud import firestore
+        self.db = firestore.Client(project=self.project_id)
+
+    def process(self, element):
+
+        #ToDo
+
+        logging.info(f"Document written to Firestore: {doc_ref.id}")
+
+
 """ Code: Dataflow Process """
 
 def run():
@@ -240,22 +245,22 @@ def run():
                 help='GCP cloud project name.')
     
     parser.add_argument(
-                '--playback_pubsub_topic',
+                '--playback_pubsub_subscription_name',
                 required=True,
-                help='Pub/Sub topic for playback events.')
+                help='Pub/Sub subscription for playback events.')
     
     parser.add_argument(
-                '--engagement_pubsub_topic',
+                '--engagement_pubsub_subscription_name',
                 required=True,
-                help='Pub/Sub topic for engagement events.')
+                help='Pub/Sub subscription for engagement events.')
     
     parser.add_argument(
-                '--quality_pubsub_topic',
+                '--quality_pubsub_subscription_name',
                 required=True,
-                help='Pub/Sub topic for quality events.')
+                help='Pub/Sub subscription for quality events.')
 
     parser.add_argument(
-                '--notifications_pubsub_topic',
+                '--notifications_pubsub_topic_name',
                 required=True,
                 help='Pub/Sub topic for push notifications.')
     
@@ -290,21 +295,21 @@ def run():
 
         playback_event = (
             p 
-                | "ReadFromPubSub" >> #ToDo
+                | "ReadFromPlayBackPubSub" >> #ToDo
                 | "ParsePlaybackMessages" >> #ToDo
                 | "NormalizePlaybackEvents" >> #ToDo
         )
 
         engagement_event = (
             p
-                | "ReadFromPubSub" >> #ToDo
+                | "ReadFromEngagementPubSub" >> #ToDo
                 | "ParseEngagementMessages" >> #ToDo
                 | "NormalizeEngagementEvents" >> #ToDo
         )
 
         quality_event = (
             p
-                | "ReadFromPubSub" >> #ToDo
+                | "ReadFromQualityPubSub" >> #ToDo
                 | "ParseQualityMessages" >> #ToDo
                 | "NormalizeQualityEvents" >> #ToDo
         )
@@ -321,12 +326,18 @@ def run():
         )
 
         (
-            user_data.UserMetricsFn.METRICS
+            user_data.metrics
                 | "WriteUserMetricsToBigQuery" >> #ToDo
         )
 
         (
-            user_data.UserMetricsFn.NOTIFY
+            user_data.notify
+                | "WriteToFirestore" >> #ToDo
+        )
+
+        (
+            user_data.notify
+                | "EncodeUserNotifications" >> #ToDo
                 | "WriteUserNotificationsToPubSub" >> #ToDo
         )
 
